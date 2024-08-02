@@ -50,8 +50,8 @@ sudo dnf install openssl-devel systemd-devel pkg-config zlib-devel llvm clang cm
 
 ```bash
 git clone https://github.com/fikunmi-ap/agave.git
-git checkout -b blockstm_v_svm
 cd agave
+git checkout -b blockstm_v_svm
 ```
 
 ## **3. Build.**
