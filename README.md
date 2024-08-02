@@ -9,6 +9,8 @@
 [![Build status](https://badge.buildkite.com/8cc350de251d61483db98bdfc895b9ea0ac8ffa4a32ee850ed.svg?branch=master)](https://buildkite.com/solana-labs/solana/builds?branch=master)
 [![codecov](https://codecov.io/gh/solana-labs/solana/branch/master/graph/badge.svg)](https://codecov.io/gh/solana-labs/solana)
 
+This branch contains the code used during the Block-STM vs. SVM paper tests. Follow these instructions to build and run the tests on a machine of your choice.
+
 # Building
 
 ## **1. Install rustc, cargo and rustfmt.**
@@ -22,12 +24,12 @@ $ rustup component add rustfmt
 When building the master branch, please make sure you are using the latest stable rust version by running:
 
 ```bash
-$ rustup update
+rustup update
 ```
 
 When building a specific release branch, you should check the rust version in `ci/rust-version.sh` and if necessary, install that version by running:
 ```bash
-$ rustup install VERSION
+rustup install VERSION
 ```
 Note that if this is not the latest rust version on your machine, cargo commands may require an [override](https://rust-lang.github.io/rustup/overrides.html) in order to use the correct version.
 
@@ -35,34 +37,35 @@ On Linux systems you may need to install libssl-dev, pkg-config, zlib1g-dev, pro
 
 On Ubuntu:
 ```bash
-$ sudo apt-get update
-$ sudo apt-get install libssl-dev libudev-dev pkg-config zlib1g-dev llvm clang cmake make libprotobuf-dev protobuf-compiler
+sudo apt-get update
+sudo apt-get install libssl-dev libudev-dev pkg-config zlib1g-dev llvm clang cmake make libprotobuf-dev protobuf-compiler
 ```
 
 On Fedora:
 ```bash
-$ sudo dnf install openssl-devel systemd-devel pkg-config zlib-devel llvm clang cmake make protobuf-devel protobuf-compiler perl-core
+sudo dnf install openssl-devel systemd-devel pkg-config zlib-devel llvm clang cmake make protobuf-devel protobuf-compiler perl-core
 ```
 
 ## **2. Download the source code.**
 
 ```bash
-$ git clone https://github.com/anza-xyz/agave.git
-$ cd agave
+git clone https://github.com/fikunmi-ap/agave.git
+git checkout -b blockstm_v_svm
+cd agave
 ```
 
 ## **3. Build.**
 
 ```bash
-$ ./cargo build
+./cargo build
 ```
 
-# Testing
+# General Testing
 
 **Run the test suite:**
 
 ```bash
-$ ./cargo test
+./cargo test
 ```
 
 ### Starting a local testnet
@@ -74,42 +77,24 @@ Start your own testnet locally, instructions are in the [online docs](https://do
 * `devnet` - stable public cluster for development accessible via
 devnet.solana.com. Runs 24/7. Learn more about the [public clusters](https://docs.solanalabs.com/clusters)
 
-# Benchmarking
+# General Benchmarking
 
 First, install the nightly build of rustc. `cargo bench` requires the use of the
 unstable features only available in the nightly build.
 
 ```bash
-$ rustup install nightly
+rustup install nightly
 ```
 
 Run the benchmarks:
 
 ```bash
-$ cargo +nightly bench
+cargo +nightly bench
 ```
+# Banking Stage Benchmarking
 
-# Release Process
-
-The release process for this project is described [here](RELEASE.md).
-
-# Code coverage
-
-To generate code coverage statistics:
+Run the command below to run the benchmark. Feel free to select additional options.
 
 ```bash
-$ scripts/coverage.sh
-$ open target/cov/lcov-local/index.html
+./cargo run --release --package solana-banking-bench --bin solana-banking-bench
 ```
-
-Why coverage? While most see coverage as a code quality metric, we see it primarily as a developer
-productivity metric. When a developer makes a change to the codebase, presumably it's a *solution* to
-some problem.  Our unit-test suite is how we encode the set of *problems* the codebase solves. Running
-the test suite should indicate that your change didn't *infringe* on anyone else's solutions. Adding a
-test *protects* your solution from future changes. Say you don't understand why a line of code exists,
-try deleting it and running the unit-tests. The nearest test failure should tell you what problem
-was solved by that code. If no test fails, go ahead and submit a Pull Request that asks, "what
-problem is solved by this code?" On the other hand, if a test does fail and you can think of a
-better way to solve the same problem, a Pull Request with your solution would most certainly be
-welcome! Likewise, if rewriting a test can better communicate what code it's protecting, please
-send us that patch!
