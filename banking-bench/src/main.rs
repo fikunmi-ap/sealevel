@@ -4,6 +4,7 @@ use {
     crossbeam_channel::{unbounded, Receiver},
     log::*,
     rand::{thread_rng, Rng},
+    rand::seq::SliceRandom, //added slice random for choose
     rayon::prelude::*,
     solana_client::connection_cache::ConnectionCache,
     solana_core::{
@@ -111,48 +112,89 @@ fn make_accounts_txs(
     contention: WriteLockContention,
     simulate_mint: bool,
     mint_txs_percentage: usize,
+    is_accounts: bool, //added is_accounts bool
+    num_accounts: usize, //added number of accounts variable
 ) -> Vec<Transaction> {
+    let payer_key = Keypair::new(); //fee payer key moved above account based block
     let to_pubkey = pubkey::new_rand();
-    let chunk_pubkeys: Vec<pubkey::Pubkey> = (0..total_num_transactions / packets_per_batch)
-        .map(|_| pubkey::new_rand())
-        .collect();
-    let payer_key = Keypair::new();
-    (0..total_num_transactions)
-        .into_par_iter()
-        .map(|i| {
-            let is_simulated_mint = is_simulated_mint_transaction(
-                simulate_mint,
-                i,
-                packets_per_batch,
-                mint_txs_percentage,
-            );
-            // simulated mint transactions have higher compute-unit-price
-            let compute_unit_price = if is_simulated_mint { 5 } else { 1 };
-            let mut new = make_transfer_transaction_with_compute_unit_price(
-                &payer_key,
-                &to_pubkey,
-                1,
-                hash,
-                compute_unit_price,
-            );
-            let sig: [u8; 64] = std::array::from_fn(|_| thread_rng().gen::<u8>());
-            new.message.account_keys[0] = pubkey::new_rand();
-            new.message.account_keys[1] = match contention {
-                WriteLockContention::None => pubkey::new_rand(),
-                WriteLockContention::SameBatchOnly => {
-                    // simulated mint transactions have conflict accounts
-                    if is_simulated_mint {
-                        chunk_pubkeys[i / packets_per_batch]
-                    } else {
-                        pubkey::new_rand()
+
+    //add accounts based contention logic
+    if is_accounts {
+        let accounts: Vec<pubkey::Pubkey> = (0..num_accounts).map(|_| pubkey::new_rand()).collect();
+        (0..total_num_transactions)
+            .into_par_iter()
+            .map(|_| {
+                let mut rng = thread_rng();
+                let send_pubkey = accounts.choose(&mut rng).unwrap();
+                let recv_pubkey = loop {
+                    let candidate = accounts.choose(&mut rng).unwrap();
+                    if candidate != send_pubkey {
+                        break candidate;
                     }
-                }
-                WriteLockContention::Full => to_pubkey,
-            };
-            new.signatures = vec![Signature::from(sig)];
-            new
-        })
-        .collect()
+                };
+
+                let compute_unit_price = 1;
+                let mut new = make_transfer_transaction_with_compute_unit_price(
+                    &payer_key,
+                    &to_pubkey,
+                    1,
+                    hash,
+                    compute_unit_price,
+                );
+                //You can have duplicate transactions in a batch, not just duplicate signatures.
+                //And considering how large signature is, the odds of a collison are sufficiently small for this experiment.
+                let sig: [u8; 64] = std::array::from_fn(|_| thread_rng().gen::<u8>());
+                new.message.account_keys[0] = *send_pubkey;
+                new.message.account_keys[1] = *recv_pubkey;
+                new.signatures = vec![Signature::from(sig)];
+                new
+            })
+            .collect()
+    }
+
+    //made it an if-else block
+    else {
+        let chunk_pubkeys: Vec<pubkey::Pubkey> = (0..total_num_transactions / packets_per_batch)
+            .map(|_| pubkey::new_rand())
+            .collect();
+        
+        (0..total_num_transactions)
+            .into_par_iter()
+            .map(|i| {
+                let is_simulated_mint = is_simulated_mint_transaction(
+                    simulate_mint,
+                    i,
+                    packets_per_batch,
+                    mint_txs_percentage,
+                );
+                // simulated mint transactions have higher compute-unit-price
+                let compute_unit_price = if is_simulated_mint { 5 } else { 1 };
+                let mut new = make_transfer_transaction_with_compute_unit_price(
+                    &payer_key,
+                    &to_pubkey,
+                    1,
+                    hash,
+                    compute_unit_price,
+                );
+                let sig: [u8; 64] = std::array::from_fn(|_| thread_rng().gen::<u8>());
+                new.message.account_keys[0] = pubkey::new_rand();
+                new.message.account_keys[1] = match contention {
+                    WriteLockContention::None => pubkey::new_rand(),
+                    WriteLockContention::SameBatchOnly => {
+                        // simulated mint transactions have conflict accounts
+                        if is_simulated_mint {
+                            chunk_pubkeys[i / packets_per_batch]
+                        } else {
+                            pubkey::new_rand()
+                        }
+                    }
+                    WriteLockContention::Full => to_pubkey,
+                };
+                new.signatures = vec![Signature::from(sig)];
+                new
+            })
+            .collect()
+    }
 }
 
 // In simulating mint, `mint_txs_percentage` transactions in a batch are mint transaction
@@ -183,7 +225,6 @@ fn make_transfer_transaction_with_compute_unit_price(
     let message = Message::new(&instructions, Some(&from_pubkey));
     Transaction::new(&[from_keypair], message, recent_blockhash)
 }
-
 struct PacketsPerIteration {
     packet_batches: Vec<PacketBatch>,
     transactions: Vec<Transaction>,
@@ -198,6 +239,8 @@ impl PacketsPerIteration {
         write_lock_contention: WriteLockContention,
         simulate_mint: bool,
         mint_txs_percentage: usize,
+        is_accounts: bool,
+        num_accounts: usize,
     ) -> Self {
         let total_num_transactions = packets_per_batch * batches_per_iteration;
         let transactions = make_accounts_txs(
@@ -207,6 +250,8 @@ impl PacketsPerIteration {
             write_lock_contention,
             simulate_mint,
             mint_txs_percentage,
+            is_accounts,
+            num_accounts,
         );
 
         let packet_batches: Vec<PacketBatch> = to_packet_batches(&transactions, packets_per_batch);
@@ -218,6 +263,7 @@ impl PacketsPerIteration {
         }
     }
 
+    //this block of code changes the blockhash of the transactions in a set of packets.
     fn refresh_blockhash(&mut self, new_blockhash: Hash) {
         for tx in self.transactions.iter_mut() {
             tx.message.recent_blockhash = new_blockhash;
@@ -313,6 +359,20 @@ fn main() {
                 .requires("simulate_mint")
                 .help("In simulating mint, number of mint transactions out of 100."),
         )
+        .arg(
+            Arg::new("is_accounts")
+                .long("is-accounts")
+                .takes_value(false)
+                .requires("skip_sanity") // requires skip sanity because of skip sanity logic
+                .help("should the transactions be created on a per account basis?"),
+        )
+        .arg(
+            Arg::new("num_accounts")
+                .long("num-accounts")
+                .takes_value(true)
+                .requires("is_accounts")
+                .help("Number of accounts to simulate contention"),
+        )    
         .get_matches();
 
     let block_production_method = matches
@@ -336,6 +396,9 @@ fn main() {
     let mint_txs_percentage = matches
         .value_of_t::<usize>("mint_txs_percentage")
         .unwrap_or(99);
+    let num_accounts = matches //check for num_accounts
+        .value_of_t::<usize>("num_accounts")
+        .unwrap_or(1000);
 
     let mint_total = 1_000_000_000_000;
     let GenesisConfigInfo {
@@ -362,6 +425,8 @@ fn main() {
             write_lock_contention,
             matches.is_present("simulate_mint"),
             mint_txs_percentage,
+            matches.is_present("is_accounts"),
+            num_accounts,
         ))
     })
     .take(num_chunks)
@@ -392,6 +457,7 @@ fn main() {
                 let sig: [u8; 64] = std::array::from_fn(|_| thread_rng().gen::<u8>());
                 fund.signatures = vec![Signature::from(sig)];
                 bank.process_transaction(&fund).unwrap();
+                bank.clear_signatures(); //why tf does this work lmao?
             });
     });
 
@@ -487,6 +553,7 @@ fn main() {
     let mut txs_processed = 0;
     let collector = solana_sdk::pubkey::new_rand();
     let mut total_sent = 0;
+
     for current_iteration_index in 0..iterations {
         trace!("RUNNING ITERATION {}", current_iteration_index);
         let now = Instant::now();
@@ -506,7 +573,7 @@ fn main() {
                 .send(BankingPacketBatch::new((vec![packet_batch.clone()], None)))
                 .unwrap();
         }
-
+        
         for tx in &packets_for_this_iteration.transactions {
             loop {
                 if bank.get_signature_status(&tx.signatures[0]).is_some() {
@@ -527,6 +594,7 @@ fn main() {
             packets_for_this_iteration.transactions.len(),
             &poh_recorder,
         ) {
+            tx_total_us += duration_as_us(&now.elapsed()); // moved this up because of all the processing that comes after.
             eprintln!(
                 "[iteration {}, tx sent {}, slot {} expired, bank tx count {}]",
                 current_iteration_index,
@@ -534,7 +602,6 @@ fn main() {
                 bank.slot(),
                 bank.transaction_count(),
             );
-            tx_total_us += duration_as_us(&now.elapsed());
 
             let mut poh_time = Measure::start("poh_time");
             poh_recorder
@@ -571,6 +638,7 @@ fn main() {
                 poh_time.as_us(),
             );
         } else {
+            tx_total_us += duration_as_us(&now.elapsed()); // moved this up because of all the processing that comes after.
             eprintln!(
                 "[iteration {}, tx sent {}, slot {} active, bank tx count {}]",
                 current_iteration_index,
@@ -578,11 +646,10 @@ fn main() {
                 bank.slot(),
                 bank.transaction_count(),
             );
-            tx_total_us += duration_as_us(&now.elapsed());
         }
 
         // This signature clear may not actually clear the signatures
-        // in this chunk, but since we rotate between CHUNKS then
+        // in this chunk, but since we rotate between chunks then
         // we should clear them by the time we come around again to re-use that chunk.
         bank.clear_signatures();
         total_us += duration_as_us(&now.elapsed());
@@ -616,6 +683,10 @@ fn main() {
     eprintln!(
         "{{'name': 'banking_bench_success_tx_total', 'median': '{:.2}'}}",
         (1000.0 * 1000.0 * (txs_processed - base_tx_count) as f64) / (total_us as f64),
+    );
+    //added this block as it's the correct evauluation of time spent processing transactions
+    eprintln!("Throughput (TPS): {:.2}",
+        (1000.0 * 1000.0 * (txs_processed - base_tx_count) as f64) / (tx_total_us as f64),
     );
 
     drop(non_vote_sender);
