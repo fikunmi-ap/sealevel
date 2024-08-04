@@ -402,13 +402,15 @@ fn main() {
 
     let mint_total = 1_000_000_000_000;
     let GenesisConfigInfo {
-        genesis_config,
+        mut genesis_config, //make genesisconfiginfo mutable
         mint_keypair,
         ..
     } = create_genesis_config(mint_total);
+    genesis_config.ticks_per_slot = 10_000; //set ticks per slot to a number that's infinitely high
 
     let (replay_vote_sender, _replay_vote_receiver) = unbounded();
-    let bank0 = Bank::new_for_benches(&genesis_config);
+    let mut bank0 = Bank::new_for_benches(&genesis_config);
+    bank.ns_per_slot = u128::MAX; // Allow arbitrary transaction processing time for the purposes of this bench
     let bank_forks = BankForks::new_rw_arc(bank0);
     let mut bank = bank_forks.read().unwrap().working_bank();
 
