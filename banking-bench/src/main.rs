@@ -123,7 +123,7 @@ fn make_accounts_txs(
         let accounts: Vec<pubkey::Pubkey> = (0..num_accounts).map(|_| pubkey::new_rand()).collect();
         (0..total_num_transactions)
             .into_par_iter()
-            .map(|_| {
+            .map(|i| { //replaced under with i to allow reuse of the value
                 let mut rng = thread_rng();
                 let send_pubkey = accounts.choose(&mut rng).unwrap();
                 let recv_pubkey = loop {
@@ -137,8 +137,8 @@ fn make_accounts_txs(
                 let mut new = make_transfer_transaction_with_compute_unit_price(
                     &payer_key,
                     &to_pubkey,
-                    1,
-                    hash,
+                    (i+1).try_into().unwrap(), //changed from 1 lamport to a value that's different per packet because of duplicated txs
+                    hash, //check signature status in bank.
                     compute_unit_price,
                 );
                 //You can have duplicate transactions in a batch, not just duplicate signatures.
