@@ -141,8 +141,7 @@ fn make_accounts_txs(
                     hash, //check signature status in bank.
                     compute_unit_price,
                 );
-                //You can have duplicate transactions in a batch, not just duplicate signatures.
-                //And considering how large signature is, the odds of a collison are sufficiently small for this experiment.
+                
                 let sig: [u8; 64] = std::array::from_fn(|_| thread_rng().gen::<u8>());
                 new.message.account_keys[0] = *send_pubkey;
                 new.message.account_keys[1] = *recv_pubkey;
