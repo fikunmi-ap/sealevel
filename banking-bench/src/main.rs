@@ -409,7 +409,7 @@ fn main() {
 
     let (replay_vote_sender, _replay_vote_receiver) = unbounded();
     let mut bank0 = Bank::new_for_benches(&genesis_config);
-    bank.ns_per_slot = u128::MAX; // Allow arbitrary transaction processing time for the purposes of this bench
+    bank0.ns_per_slot = u128::MAX; // Allow arbitrary transaction processing time for the purposes of this bench
     let bank_forks = BankForks::new_rw_arc(bank0);
     let mut bank = bank_forks.read().unwrap().working_bank();
 
