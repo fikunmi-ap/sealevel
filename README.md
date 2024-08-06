@@ -16,9 +16,9 @@ This branch contains the code used during the Block-STM vs. SVM paper tests. Fol
 ## **1. Install rustc, cargo and rustfmt.**
 
 ```bash
-$ curl https://sh.rustup.rs -sSf | sh
-$ source $HOME/.cargo/env
-$ rustup component add rustfmt
+curl https://sh.rustup.rs -sSf | sh
+source $HOME/.cargo/env
+rustup component add rustfmt
 ```
 
 When building the master branch, please make sure you are using the latest stable rust version by running:
