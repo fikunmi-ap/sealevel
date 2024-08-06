@@ -51,7 +51,7 @@ sudo dnf install openssl-devel systemd-devel pkg-config zlib-devel llvm clang cm
 ```bash
 git clone https://github.com/fikunmi-ap/agave.git
 cd agave
-git checkout -b blockstm_v_svm
+git checkout -b big_blocks_incr
 ```
 
 ## **3. Build.**
