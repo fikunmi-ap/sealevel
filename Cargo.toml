@@ -48,7 +48,7 @@ members = [
     "genesis-utils",
     "geyser-plugin-interface",
     "geyser-plugin-manager",
-    "gossip",
+    "gossip", "historical-load-bench",
     "inline-spl",
     "install",
     "keygen",
