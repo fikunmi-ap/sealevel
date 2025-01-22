@@ -471,7 +471,6 @@
 extern crate self as solana_program;
 
 pub mod address_lookup_table;
-pub mod blake3;
 pub mod bpf_loader;
 pub mod bpf_loader_deprecated;
 pub mod bpf_loader_upgradeable;
@@ -484,8 +483,13 @@ pub mod hash;
 pub mod incinerator;
 pub mod instruction;
 pub mod lamports;
-pub mod loader_instruction;
-pub mod loader_upgradeable_instruction;
+pub mod loader_upgradeable_instruction {
+    #[deprecated(
+        since = "2.2.0",
+        note = "Use solana_loader_v3_interface::instruction instead"
+    )]
+    pub use solana_loader_v3_interface::instruction::UpgradeableLoaderInstruction;
+}
 pub mod loader_v4;
 pub mod loader_v4_instruction;
 pub mod log;
@@ -506,6 +510,8 @@ pub mod wasm;
 
 #[deprecated(since = "2.2.0", note = "Use `solana-big-mod-exp` crate instead")]
 pub use solana_big_mod_exp as big_mod_exp;
+#[deprecated(since = "2.2.0", note = "Use `solana-blake3-hasher` crate instead")]
+pub use solana_blake3_hasher as blake3;
 #[cfg(feature = "borsh")]
 #[deprecated(since = "2.1.0", note = "Use `solana-borsh` crate instead")]
 pub use solana_borsh::deprecated as borsh;
@@ -528,6 +534,11 @@ pub use solana_fee_calculator as fee_calculator;
 pub use solana_keccak_hasher as keccak;
 #[deprecated(since = "2.1.0", note = "Use `solana-last-restart-slot` crate instead")]
 pub use solana_last_restart_slot as last_restart_slot;
+#[deprecated(
+    since = "2.2.0",
+    note = "Use `solana-loader-v2-interface` crate instead"
+)]
+pub use solana_loader_v2_interface as loader_instruction;
 #[deprecated(since = "2.2.0", note = "Use `solana-message` crate instead")]
 pub use solana_message as message;
 #[deprecated(since = "2.1.0", note = "Use `solana-program-memory` crate instead")]

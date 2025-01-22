@@ -113,6 +113,7 @@ members = [
     "sdk/atomic-u64",
     "sdk/big-mod-exp",
     "sdk/bincode",
+    "sdk/blake3-hasher",
     "sdk/borsh",
     "sdk/cargo-build-sbf",
     "sdk/cargo-test-sbf",
@@ -146,6 +147,8 @@ members = [
     "sdk/instructions-sysvar",
     "sdk/keccak-hasher",
     "sdk/keypair",
+    "sdk/loader-v2-interface",
+    "sdk/loader-v3-interface",
     "sdk/logger",
     "sdk/macro",
     "sdk/message",
@@ -212,6 +215,7 @@ members = [
     "svm-transaction",
     "test-validator",
     "thin-client",
+    "thread-manager",
     "timings",
     "tls-utils",
     "tokens",
@@ -261,6 +265,7 @@ check-cfg = [
 
 [workspace.dependencies]
 Inflector = "0.11.4"
+axum = "0.7.9"
 agave-banking-stage-ingress-types = { path = "banking-stage-ingress-types", version = "=2.2.0" }
 agave-transaction-view = { path = "transaction-view", version = "=2.2.0" }
 aquamarine = "0.3.3"
@@ -299,6 +304,7 @@ bzip2 = "0.4.4"
 caps = "0.5.5"
 cargo_metadata = "0.15.4"
 cfg_eval = "0.1.2"
+cfg-if = "1.0.0"
 chrono = { version = "0.4.39", default-features = false }
 chrono-humanize = "0.2.3"
 clap = "2.33.1"
@@ -427,7 +433,7 @@ serde = "1.0.217" # must match the serde_derive version, see https://github.com/
 serde-big-array = "0.5.1"
 serde_bytes = "0.11.15"
 serde_derive = "1.0.217" # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
-serde_json = "1.0.135"
+serde_json = "1.0.137"
 serde_with = { version = "3.12.0", default-features = false }
 serde_yaml = "0.9.34"
 serial_test = "2.0.0"
@@ -455,6 +461,7 @@ solana-banks-server = { path = "banks-server", version = "=2.2.0" }
 solana-bench-tps = { path = "bench-tps", version = "=2.2.0" }
 solana-big-mod-exp = { path = "sdk/big-mod-exp", version = "=2.2.0" }
 solana-bincode = { path = "sdk/bincode", version = "=2.2.0" }
+solana-blake3-hasher = { path = "sdk/blake3-hasher" }
 solana-bloom = { path = "bloom", version = "=2.2.0" }
 solana-bn254 = { path = "curves/bn254", version = "=2.2.0" }
 solana-borsh = { path = "sdk/borsh", version = "=2.2.0" }
@@ -463,6 +470,7 @@ solana-bucket-map = { path = "bucket_map", version = "=2.2.0" }
 solana-builtins = { path = "builtins", version = "=2.2.0" }
 solana-builtins-default-costs = { path = "builtins-default-costs", version = "=2.2.0" }
 agave-cargo-registry = { path = "cargo-registry", version = "=2.2.0" }
+agave-thread-manager = { path = "thread-manager", version = "=2.2.0" }
 solana-clap-utils = { path = "clap-utils", version = "=2.2.0" }
 solana-clap-v3-utils = { path = "clap-v3-utils", version = "=2.2.0" }
 solana-cli = { path = "cli", version = "=2.2.0" }
@@ -522,6 +530,8 @@ solana-keypair = { path = "sdk/keypair", version = "=2.2.0" }
 solana-last-restart-slot = { path = "sdk/last-restart-slot", version = "=2.2.0" }
 solana-lattice-hash = { path = "lattice-hash", version = "=2.2.0" }
 solana-ledger = { path = "ledger", version = "=2.2.0" }
+solana-loader-v2-interface = { path = "sdk/loader-v2-interface", version = "=2.2.0" }
+solana-loader-v3-interface = { path = "sdk/loader-v3-interface", version = "=2.2.0" }
 solana-loader-v4-program = { path = "programs/loader-v4", version = "=2.2.0" }
 solana-local-cluster = { path = "local-cluster", version = "=2.2.0" }
 solana-log-collector = { path = "log-collector", version = "=2.2.0" }
@@ -660,6 +670,7 @@ tarpc = "0.29.0"
 tempfile = "3.14.0"
 test-case = "3.3.1"
 thiserror = "2.0.11"
+thread-priority = "1.2.0"
 tiny-bip39 = "0.8.2"
 # Update solana-tokio patch below when updating this version
 tokio = "1.43.0"
@@ -670,6 +681,7 @@ tokio-util = "0.7"
 toml = "0.8.12"
 tonic = "0.9.2"
 tonic-build = "0.9.2"
+tower = "0.5.2"
 trees = "0.4.2"
 tungstenite = "0.20.1"
 uriparse = "0.6.4"
