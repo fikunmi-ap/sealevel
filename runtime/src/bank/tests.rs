@@ -73,6 +73,7 @@ use {
         incinerator,
         instruction::{AccountMeta, CompiledInstruction, Instruction, InstructionError},
         loader_upgradeable_instruction::UpgradeableLoaderInstruction,
+        loader_v4::{self, LoaderV4State},
         message::{Message, MessageHeader, SanitizedMessage},
         native_loader,
         native_token::{sol_to_lamports, LAMPORTS_PER_SOL},
@@ -3043,7 +3044,7 @@ fn test_filter_program_errors_and_collect_fee() {
     bank.deactivate_feature(&feature_set::reward_full_priority_fee::id());
 
     let tx_fee = 42;
-    let fee_details = FeeDetails::new(tx_fee, 0, false);
+    let fee_details = FeeDetails::new(tx_fee, 0);
     let processing_results = vec![
         Err(TransactionError::AccountNotFound),
         new_executed_processing_result(Ok(()), fee_details),
@@ -3082,7 +3083,7 @@ fn test_filter_program_errors_and_collect_priority_fee() {
     bank.deactivate_feature(&feature_set::reward_full_priority_fee::id());
 
     let priority_fee = 42;
-    let fee_details: FeeDetails = FeeDetails::new(0, priority_fee, false);
+    let fee_details: FeeDetails = FeeDetails::new(0, priority_fee);
     let processing_results = vec![
         Err(TransactionError::AccountNotFound),
         new_executed_processing_result(Ok(()), fee_details),
@@ -3343,7 +3344,7 @@ fn test_load_and_execute_commit_transactions_fees_only(enable_fees_only_txs: boo
                 inner_instructions: None,
                 return_data: None,
                 executed_units: 0,
-                fee_details: FeeDetails::new(5000, 0, true),
+                fee_details: FeeDetails::new(5000, 0),
                 rent_debits: RentDebits::default(),
                 loaded_account_stats: TransactionLoadedAccountsStats {
                     loaded_accounts_count: 2,
@@ -3615,6 +3616,10 @@ fn test_bank_hash_internal_state_verify(is_accounts_lt_hash_enabled: bool) {
             genesis_config
                 .accounts
                 .remove(&feature_set::accounts_lt_hash::id())
+                .unwrap();
+            genesis_config
+                .accounts
+                .remove(&feature_set::remove_accounts_delta_hash::id())
                 .unwrap();
         }
         let (bank0, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
@@ -7242,11 +7247,13 @@ fn test_bank_load_program() {
     }
 }
 
+#[allow(deprecated)]
 #[test]
 fn test_bpf_loader_upgradeable_deploy_with_max_len() {
     let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
     let mut bank = Bank::new_for_tests(&genesis_config);
     bank.feature_set = Arc::new(FeatureSet::all_enabled());
+    bank.deactivate_feature(&solana_feature_set::disable_new_loader_v3_deployments::id());
     let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
     let mut bank_client = BankClient::new_shared(bank.clone());
 
@@ -10389,7 +10396,6 @@ fn calculate_test_fee(
         fee_structure.lamports_per_signature,
         fee_budget_limits.prioritization_fee,
         FeeFeatures {
-            remove_rounding_in_fee_calculation: true,
             enable_secp256r1_precompile: true,
         },
     )
@@ -13231,7 +13237,7 @@ fn test_filter_program_errors_and_collect_fee_details() {
     let initial_payer_balance = 7_000;
     let tx_fee = 5000;
     let priority_fee = 1000;
-    let fee_details = FeeDetails::new(tx_fee, priority_fee, false);
+    let fee_details = FeeDetails::new(tx_fee, priority_fee);
     let expected_collected_fee_details = CollectorFeeDetails {
         transaction_fee: 3 * tx_fee,
         priority_fee: 3 * priority_fee,
@@ -13281,11 +13287,15 @@ fn test_deploy_last_epoch_slot() {
 
     // Bank Setup
     let (mut genesis_config, mint_keypair) = create_genesis_config(1_000_000 * LAMPORTS_PER_SOL);
+    activate_feature(
+        &mut genesis_config,
+        solana_feature_set::enable_loader_v4::id(),
+    );
     genesis_config
         .accounts
-        .remove(&feature_set::disable_fees_sysvar::id());
+        .remove(&feature_set::remove_accounts_executable_flag_checks::id());
     let mut bank = Bank::new_for_tests(&genesis_config);
-    bank.activate_feature(&feature_set::disable_fees_sysvar::id());
+    bank.activate_feature(&feature_set::remove_accounts_executable_flag_checks::id());
 
     // go to the last slot in the epoch
     let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
@@ -13304,47 +13314,41 @@ fn test_deploy_last_epoch_slot() {
     let mut file = File::open("../programs/bpf_loader/test_elfs/out/noop_aligned.so").unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
-    let min_program_balance =
-        bank.get_minimum_balance_for_rent_exemption(UpgradeableLoaderState::size_of_program());
-    let min_buffer_balance = bank
-        .get_minimum_balance_for_rent_exemption(UpgradeableLoaderState::size_of_buffer(elf.len()));
-    let min_programdata_balance = bank.get_minimum_balance_for_rent_exemption(
-        UpgradeableLoaderState::size_of_programdata(elf.len()),
-    );
-    let buffer_address = Pubkey::new_unique();
-    let (programdata_address, _) = Pubkey::find_program_address(
-        &[program_keypair.pubkey().as_ref()],
-        &bpf_loader_upgradeable::id(),
+    let min_program_balance = bank.get_minimum_balance_for_rent_exemption(
+        LoaderV4State::program_data_offset().saturating_add(elf.len()),
     );
     let upgrade_authority_keypair = Keypair::new();
 
-    let buffer_account = {
-        let mut account = AccountSharedData::new(
-            min_buffer_balance,
-            UpgradeableLoaderState::size_of_buffer(elf.len()),
-            &bpf_loader_upgradeable::id(),
-        );
-        account
-            .set_state(&UpgradeableLoaderState::Buffer {
-                authority_address: Some(upgrade_authority_keypair.pubkey()),
-            })
-            .unwrap();
-        account
+    let mut program_account = AccountSharedData::new(
+        min_program_balance,
+        LoaderV4State::program_data_offset().saturating_add(elf.len()),
+        &loader_v4::id(),
+    );
+    let program_state = <&mut [u8; LoaderV4State::program_data_offset()]>::try_from(
+        program_account
             .data_as_mut_slice()
-            .get_mut(UpgradeableLoaderState::size_of_buffer_metadata()..)
-            .unwrap()
-            .copy_from_slice(&elf);
-        account
+            .get_mut(0..LoaderV4State::program_data_offset())
+            .unwrap(),
+    )
+    .unwrap();
+    let program_state = unsafe {
+        std::mem::transmute::<&mut [u8; LoaderV4State::program_data_offset()], &mut LoaderV4State>(
+            program_state,
+        )
     };
+    program_state.authority_address_or_next_version = upgrade_authority_keypair.pubkey();
+    program_account
+        .data_as_mut_slice()
+        .get_mut(LoaderV4State::program_data_offset()..)
+        .unwrap()
+        .copy_from_slice(&elf);
 
     let payer_base_balance = LAMPORTS_PER_SOL;
     let deploy_fees = {
         let fee_calculator = genesis_config.fee_rate_governor.create_fee_calculator();
         3 * fee_calculator.lamports_per_signature
     };
-    let min_payer_balance = min_program_balance
-        .saturating_add(min_programdata_balance)
-        .saturating_sub(min_buffer_balance.saturating_add(deploy_fees));
+    let min_payer_balance = min_program_balance.saturating_add(deploy_fees);
     bank.store_account(
         &payer_keypair.pubkey(),
         &AccountSharedData::new(
@@ -13353,22 +13357,15 @@ fn test_deploy_last_epoch_slot() {
             &system_program::id(),
         ),
     );
-    bank.store_account(&buffer_address, &buffer_account);
-    bank.store_account(&program_keypair.pubkey(), &AccountSharedData::default());
-    bank.store_account(&programdata_address, &AccountSharedData::default());
+    bank.store_account(&program_keypair.pubkey(), &program_account);
     let message = Message::new(
-        &bpf_loader_upgradeable::deploy_with_max_program_len(
-            &payer_keypair.pubkey(),
+        &[loader_v4::deploy(
             &program_keypair.pubkey(),
-            &buffer_address,
             &upgrade_authority_keypair.pubkey(),
-            min_program_balance,
-            elf.len(),
-        )
-        .unwrap(),
+        )],
         Some(&payer_keypair.pubkey()),
     );
-    let signers = &[&payer_keypair, &program_keypair, &upgrade_authority_keypair];
+    let signers = &[&payer_keypair, &upgrade_authority_keypair];
     let transaction = Transaction::new(signers, message.clone(), bank.last_blockhash());
     let ret = bank.process_transaction(&transaction);
     assert!(ret.is_ok(), "ret: {:?}", ret);
@@ -13598,11 +13595,22 @@ fn test_bank_epoch_stakes() {
     }
 }
 
-#[test]
-fn test_rehash_good() {
+/// Ensure rehash() does *not* change the bank hash if accounts are unmodified
+#[test_case(true; "with accounts delta hash")]
+#[test_case(false; "without accounts delta hash")]
+fn test_rehash_accounts_unmodified(has_accounts_delta_hash: bool) {
     let ten_sol = 10 * LAMPORTS_PER_SOL;
-    let (genesis_config, _mint) = create_genesis_config(ten_sol);
-    let bank = Bank::new_for_tests(&genesis_config);
+    let mut genesis_config_info = genesis_utils::create_genesis_config(ten_sol);
+    if has_accounts_delta_hash {
+        // Keep the accounts delta hash by removing the 'remove_accounts_delta_hash'
+        // feature account from genesis.
+        genesis_config_info
+            .genesis_config
+            .accounts
+            .remove(&feature_set::remove_accounts_delta_hash::id())
+            .unwrap();
+    }
+    let bank = Bank::new_for_tests(&genesis_config_info.genesis_config);
 
     let lamports = 123_456_789;
     let account = AccountSharedData::new(lamports, 0, &Pubkey::default());
@@ -13619,12 +13627,20 @@ fn test_rehash_good() {
     assert_eq!(post_bank_hash, prev_bank_hash);
 }
 
+/// Ensure rehash() *does* change the bank hash if accounts are modified
 #[test]
 #[should_panic(expected = "rehashing is not allowed to change the account state")]
-fn test_rehash_bad() {
+fn test_rehash_accounts_modified() {
     let ten_sol = 10 * LAMPORTS_PER_SOL;
-    let (genesis_config, _mint) = create_genesis_config(ten_sol);
-    let bank = Bank::new_for_tests(&genesis_config);
+    let mut genesis_config_info = genesis_utils::create_genesis_config(ten_sol);
+    // Keep the accounts delta hash by removing the 'remove_accounts_delta_hash'
+    // feature account from genesis.
+    genesis_config_info
+        .genesis_config
+        .accounts
+        .remove(&feature_set::remove_accounts_delta_hash::id())
+        .unwrap();
+    let bank = Bank::new_for_tests(&genesis_config_info.genesis_config);
 
     let mut account = AccountSharedData::new(ten_sol, 0, &Pubkey::default());
     let pubkey = Pubkey::new_unique();
@@ -13641,61 +13657,4 @@ fn test_rehash_bad() {
 
     // let the show begin
     bank.rehash();
-}
-
-/// Test that when a bank freezes, it populate `uncleaned_pubkeys` for the slot
-/// to clean. And after clean, it will remove the slot from `uncleaned_pubkeys`.
-#[test]
-fn test_populate_uncleaned_slot_for_bank() {
-    let ten_sol = 10 * LAMPORTS_PER_SOL;
-    let bank = create_simple_test_bank(100);
-    let account = AccountSharedData::new(ten_sol, 0, &Pubkey::default());
-    let pubkey = Pubkey::new_unique();
-    bank.store_account_and_update_capitalization(&pubkey, &account);
-    bank.freeze();
-
-    assert_eq!(
-        bank.rc
-            .accounts
-            .accounts_db
-            .get_len_of_slots_with_uncleaned_pubkeys(),
-        1
-    );
-
-    bank.clean_accounts();
-    assert_eq!(
-        bank.rc
-            .accounts
-            .accounts_db
-            .get_len_of_slots_with_uncleaned_pubkeys(),
-        0
-    );
-}
-
-/// This test is similar to `test_populate_uncleaned_slot_for_bank`, but it
-/// tests when there is no accounts in the bank. In theory, we should optimize
-/// and not populate the slot to clean. But the current code didn't check if
-/// there are accounts in the bank, so it will populate the slot to clean even
-/// it is empty. This test is to make sure the behavior is consistent.
-#[test]
-fn test_populate_uncleaned_slot_for_bank_with_empty_accounts() {
-    let bank = create_simple_test_bank(100);
-    bank.freeze();
-
-    assert_eq!(
-        bank.rc
-            .accounts
-            .accounts_db
-            .get_len_of_slots_with_uncleaned_pubkeys(),
-        1
-    );
-
-    bank.clean_accounts();
-    assert_eq!(
-        bank.rc
-            .accounts
-            .accounts_db
-            .get_len_of_slots_with_uncleaned_pubkeys(),
-        0
-    );
 }

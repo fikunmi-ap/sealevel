@@ -7,6 +7,8 @@ use {
         register_builtins, MockBankCallback, MockForkGraph, EXECUTION_EPOCH, EXECUTION_SLOT,
         WALLCLOCK_TIME,
     },
+    solana_compute_budget::compute_budget_limits::ComputeBudgetLimits,
+    solana_compute_budget_instruction::instructions_processor::process_compute_budget_instructions,
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount, WritableAccount},
         clock::Slot,
@@ -401,10 +403,19 @@ impl SvmTestEntry {
             .iter()
             .cloned()
             .map(|item| {
-                (
-                    SanitizedTransaction::from_transaction_for_tests(item.transaction),
-                    item.check_result,
-                )
+                let message = SanitizedTransaction::from_transaction_for_tests(item.transaction);
+                let check_result = item.check_result.map(|tx_details| {
+                    CheckedTransactionDetails::new(
+                        tx_details.nonce,
+                        tx_details.lamports_per_signature,
+                        process_compute_budget_instructions(
+                            SVMMessage::program_instructions_iter(&message),
+                            &FeatureSet::default(),
+                        ),
+                    )
+                });
+
+                (message, check_result)
             })
             .unzip()
     }
@@ -430,10 +441,11 @@ pub struct TransactionBatchItem {
 impl TransactionBatchItem {
     fn with_nonce(nonce_info: NonceInfo) -> Self {
         Self {
-            check_result: Ok(CheckedTransactionDetails {
-                nonce: Some(nonce_info),
-                lamports_per_signature: LAMPORTS_PER_SIGNATURE,
-            }),
+            check_result: Ok(CheckedTransactionDetails::new(
+                Some(nonce_info),
+                LAMPORTS_PER_SIGNATURE,
+                Ok(ComputeBudgetLimits::default()),
+            )),
             ..Self::default()
         }
     }
@@ -443,10 +455,11 @@ impl Default for TransactionBatchItem {
     fn default() -> Self {
         Self {
             transaction: Transaction::default(),
-            check_result: Ok(CheckedTransactionDetails {
-                nonce: None,
-                lamports_per_signature: LAMPORTS_PER_SIGNATURE,
-            }),
+            check_result: Ok(CheckedTransactionDetails::new(
+                None,
+                LAMPORTS_PER_SIGNATURE,
+                Ok(ComputeBudgetLimits::default()),
+            )),
             asserts: TransactionBatchItemAsserts::default(),
         }
     }

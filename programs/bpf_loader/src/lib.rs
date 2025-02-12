@@ -12,16 +12,15 @@ use {
     solana_clock::Slot,
     solana_compute_budget::compute_budget::MAX_INSTRUCTION_STACK_DEPTH,
     solana_feature_set::{
-        bpf_account_data_direct_mapping, enable_bpf_loader_set_authority_checked_ix,
-        remove_accounts_executable_flag_checks,
+        bpf_account_data_direct_mapping, disable_new_loader_v3_deployments,
+        enable_bpf_loader_set_authority_checked_ix, remove_accounts_executable_flag_checks,
     },
     solana_instruction::{error::InstructionError, AccountMeta},
+    solana_loader_v3_interface::{
+        instruction::UpgradeableLoaderInstruction, state::UpgradeableLoaderState,
+    },
     solana_log_collector::{ic_logger_msg, ic_msg, LogCollector},
     solana_measure::measure::Measure,
-    solana_program::{
-        bpf_loader_upgradeable::UpgradeableLoaderState,
-        loader_upgradeable_instruction::UpgradeableLoaderInstruction,
-    },
     solana_program_entrypoint::{MAX_PERMITTED_DATA_INCREASE, SUCCESS},
     solana_program_runtime::{
         invoke_context::{BpfAllocator, InvokeContext, SerializedAccountMetadata, SyscallContext},
@@ -562,6 +561,14 @@ fn process_loader_upgradeable_instruction(
             )?;
         }
         UpgradeableLoaderInstruction::DeployWithMaxDataLen { max_data_len } => {
+            if invoke_context
+                .get_feature_set()
+                .is_active(&disable_new_loader_v3_deployments::id())
+            {
+                ic_logger_msg!(log_collector, "Unsupported instruction");
+                return Err(InstructionError::InvalidInstructionData);
+            }
+
             instruction_context.check_number_of_instruction_accounts(4)?;
             let payer_key = *transaction_context.get_key_of_account_at_index(
                 instruction_context.get_index_of_instruction_account_in_transaction(0)?,
@@ -1575,9 +1582,9 @@ mod test_utils {
     #[cfg(feature = "svm-internal")]
     use {
         super::*, crate::syscalls::create_program_runtime_environment_v1,
-        solana_account::ReadableAccount, solana_program::loader_v4,
-        solana_program::loader_v4::LoaderV4State,
+        solana_account::ReadableAccount, solana_loader_v4_interface::state::LoaderV4State,
         solana_program_runtime::loaded_programs::DELAY_VISIBILITY_SLOT_OFFSET,
+        solana_sdk_ids::loader_v4,
     };
 
     #[cfg(feature = "svm-internal")]
@@ -1683,6 +1690,9 @@ mod tests {
             expected_result,
             Entrypoint::vm,
             |invoke_context| {
+                let mut feature_set = invoke_context.get_feature_set().clone();
+                feature_set.deactivate(&disable_new_loader_v3_deployments::id());
+                invoke_context.mock_set_feature_set(Arc::new(feature_set));
                 test_utils::load_all_invoked_programs(invoke_context);
             },
             |_invoke_context| {},
